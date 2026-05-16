@@ -171,6 +171,39 @@ Key settings:
 
 **Key insight**: Model is a **ranker not classifier**. Works: prioritize top N alerts. Doesn't work: predict binary yes/no with threshold.
 
+## Findings from OOS Validation
+
+### What Works ✅
+- **Alert ranking** by confidence score (proven)
+- **Top 1% precision**: 100% (2 alerts/quarter at 2% base rate)
+- **Top 5% precision**: 41.7% (12 alerts/quarter)
+- **Outperforms random**: 50x lift @ top-1%, 20.8x @ top-5%
+- **Walk-forward validation**: No lookahead bias, credible
+
+### What Doesn't Work ❌
+- **Binary classification**: F1=0% (daily bars don't contain transition signal)
+- **Threshold-based rules**: Can't set cutoff that captures positives
+- **Single-ticker prediction**: Too sparse (1-2% base rate)
+- **Technical features alone**: Transitions driven by overnight/intraday info
+
+### Honest Assessment
+Model ranks signals better than noise but can't predict volatility transitions from daily OHLCV alone. **Use for alert prioritization** (rank 50-100 signals, trade top 1-5%). **Don't use for binary classification** (threshold at score X).
+
+### What Would Break the Ceiling
+- Intraday order-flow data: +0.05-0.10 F1
+- Options surface (IV skew, term structure): +0.10-0.15 F1  
+- Alternative data (news sentiment, insider trades): +0.05-0.10 F1
+- **Realistic multi-modal ceiling**: 0.40-0.50 F1 with ensemble
+
+## Scale-Up Path (Future Work)
+
+Current: Single-ticker AAPL, 2% base rate, 100% top-1% precision
+Potential:
+- **Pool 8 tickers**: 20% base rate, F1 0.15-0.25 expected
+- **Add intraday data**: +5-10% F1 improvement
+- **Options surface**: +10-15% F1 improvement
+- **Multi-modal ensemble**: Realistic 0.40-0.50 F1
+
 ## Advanced Features (2025)
 
 ### 1. Real Options Data Integration
