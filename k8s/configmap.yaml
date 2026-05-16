@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volatility-config
+  namespace: default
+data:
+  LOG_LEVEL: "INFO"
+  MIN_SIGNAL_STRENGTH: "0.55"
+  PORTFOLIO_CAPACITY: "10"
+  MAX_ALERTS_PER_TICKER_WINDOW: "3"
+  PSI_HIGH_THRESHOLD: "0.25"
+  SCORE_DRIFT_SIGMA: "2.0"

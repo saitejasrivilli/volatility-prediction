@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: volatility-api
+  namespace: default
+  labels:
+    app: volatility-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: volatility-api
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volatility-api
+  namespace: default
