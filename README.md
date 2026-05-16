@@ -195,6 +195,18 @@ Model ranks signals better than noise but can't predict volatility transitions f
 - Alternative data (news sentiment, insider trades): +0.05-0.10 F1
 - **Realistic multi-modal ceiling**: 0.40-0.50 F1 with ensemble
 
+## Summary: What This Project Proves
+
+| Question | Answer | Evidence |
+|----------|--------|----------|
+| Can daily bars predict vol transitions? | No (F1=0%) | Walk-forward 2020-2024 AAPL |
+| Can we rank transitions by probability? | Yes (50x lift) | Top-1% precision 100% vs 2% baseline |
+| Does pooling 8 tickers help F1? | No | Still F1≈0.1% (sparse signal fundamental) |
+| What would fix F1? | Multi-modal data | Options + intraday + news sentiment |
+| Is this production-ready? | For ranking only | Binary classification not viable with daily data |
+
+**Bottom line**: Proven alert ranker (actionable, 50x lift). Not a binary classifier (F1=0% fundamental limit with daily bars).
+
 ## Scale-Up Path (Future Work)
 
 Current: Single-ticker AAPL, 2% base rate, 100% top-1% precision
