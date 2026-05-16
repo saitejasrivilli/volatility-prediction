@@ -6,11 +6,13 @@ Production-grade AI/quant research system for equity volatility prediction and t
 
 Predicts equity volatility regime transitions (entry into high-volatility periods) using walk-forward validation, rigorous baseline comparison, and production-safe inference.
 
-- **Signal Generation**: ML models (logistic regression, random forest) predict volatility transitions
+- **Signal Generation**: ML models (logistic, random forest, XGBoost, LightGBM) predict volatility transitions
 - **Portfolio Management**: Autonomous agents filter alerts by risk constraints, portfolio capacity, correlation
 - **Compliance**: Immutable audit logs, model governance, decision tracking
 - **Deployment**: Docker, Kubernetes, GitHub Actions CI/CD, Prometheus monitoring
-- **Options Integration**: Straddle backtesting with Greeks-based hedging
+- **Options Integration**: Live options data (yfinance), Greeks validation, straddle backtesting with hedging
+- **Market Regime Analysis**: Performance splits by volatility regime, out-of-sample validation
+- **Validation & Intuition**: Greeks validation against market, financial intuition documentation
 
 ## Quick Start
 
@@ -24,8 +26,17 @@ python -m src.main \
   --start-date 2020-01-01 \
   --end-date 2024-12-31 \
   --target-kind transition \
-  --models logistic random_forest \
+  --models logistic random_forest xgboost lightgbm \
   --results-dir results/aapl
+
+# Or with just gradient boosting (faster F1 improvement)
+python -m src.main \
+  --ticker AAPL \
+  --start-date 2020-01-01 \
+  --end-date 2024-12-31 \
+  --target-kind transition \
+  --models xgboost lightgbm \
+  --results-dir results/aapl-boost
 
 # Start API
 uvicorn src.service:app --reload
@@ -59,10 +70,14 @@ raw OHLCV
 | `src/ab_testing.py` | Champion vs challenger comparison |
 | `src/model_registry.py` | Artifact versioning & governance |
 | `src/greeks.py` | Black-Scholes Greeks, options pricing |
+| `src/greeks_validation.py` | Validate Greeks/pricing against market chains |
 | `src/hedging.py` | Delta neutralization, vega hedging |
 | `src/tick_data.py` | Intraday data, realized volatility |
+| `src/options_data.py` | Historical & live options chains (Alpha Vantage, yfinance, Polygon, ORATS) |
+| `src/regime_analysis.py` | Performance splits by volatility regime (low/medium/high) |
+| `src/oos_report.py` | Out-of-sample validation (2020-2023 train, 2024 test) |
 
-### Feature Groups (12 total, configurable)
+### Feature Groups (15+ total, configurable)
 
 **Technical** (standard)
 - Moving average ratios, RSI, Bollinger Bands, ATR, momentum
@@ -70,11 +85,17 @@ raw OHLCV
 **Regime** (existing)
 - Volatility regime, trend regime, volume profile
 
-**Advanced** (new)
+**Advanced** (existing)
 - Mean reversion (Z-score, Hurst, OU process)
 - Regime persistence (transition matrix, correlation breakdown)
 - Liquidity (ADV, Amihud, bid-ask impact)
 - Factor models (beta, SMB, HML proxies)
+
+**Options & Implied Vol** (new)
+- IV_ATM: 30-day at-the-money implied volatility
+- IV_Skew: Call vs put IV spread (risk-off detector)
+- IV_Term_Structure: Short-dated vs long-dated IV ratio
+- VIX_Proxy: 30-day realized vol of broad market
 
 ## Deployment
 
@@ -148,6 +169,42 @@ Key settings:
 
 This reflects disciplined research: reports failures honestly, baselines always compared, no overfitting claims.
 
+## Advanced Features (2025)
+
+### 1. Real Options Data Integration
+- **Source**: yfinance (free, no API key) + Alpha Vantage + Polygon + ORATS extensible framework
+- **`YFinanceHistoricalOptionsClient`**: Fetches current option chains, finds nearest expirations, normalizes to unified schema
+- **Live data**: Supports both backtest (demo chains) and production (live yfinance) modes
+
+### 2. Greeks Validation
+- **Module**: `src/greeks_validation.py`
+- **validates**: Black-Scholes pricing vs market mid, IV surface, delta errors
+- **Output**: Per-contract validation report with tolerance checks (±10% default)
+
+### 3. Market Regime Analysis
+- **Module**: `src/regime_analysis.py`
+- **Splits**: Backtest folds by volatility regime (low/medium/high terciles)
+- **Reports**: Per-regime metrics (Avg F1, PR-AUC, Precision@5%, positive rate)
+- **Insight**: Model should perform better in high-vol regimes (more signal), worse in low-vol (sparse events)
+
+### 4. Out-of-Sample Validation
+- **Module**: `src/oos_report.py`
+- **Hardcoded**: Train 2020-2023, test 2024 (calendar year holdout)
+- **Compares**: CV metrics vs unseen 2024 data (detects overfitting)
+- **Output**: `oos_comparison.csv`, `oos_report.md`
+
+### 5. Financial Intuition Documentation
+- **File**: `docs/FINANCIAL_INTUITION.md`
+- **Covers**: Why volatility transitions are hard, class imbalance math, regime persistence, feature lag
+- **Honest assessment**: F1 fundamental ceiling ~0.25-0.35 with daily bars; 13.9x ranking lift is the real win
+- **Prescriptions**: What data would break the ceiling (intraday, options surface, alternative data)
+
+### 6. Gradient Boosting + Implied Vol Features
+- **Models**: XGBoost (scale_pos_weight=20), LightGBM (is_unbalance=True) handle rare events better
+- **IV Features**: `ImpliedVolFeatures.compute_iv_features()` provides IV_ATM, IV_Skew, IV_Term_Structure, VIX_Proxy
+- **Expected F1 lift**: +0.05-0.10 vs random forest via explicit imbalance handling
+- **Config**: Feature groups configurable; IV features off by default (need live data)
+
 ## Production Readiness
 
 ✅ Walk-forward validation (no lookahead bias)  
@@ -169,12 +226,13 @@ This reflects disciplined research: reports failures honestly, baselines always 
 - `00_START_HERE.md` — full documentation
 - `docs/INTERVIEW_TALK_TRACK.md` — how to explain this project
 - `docs/IMPLEMENTATION_GUIDE.md` — adding new components
+- `docs/FINANCIAL_INTUITION.md` — why F1 is low, why pooling helps, fundamental ceiling with daily data
 - `.github/workflows/` — CI/CD setup
 
 ## Tech Stack
 
-- **ML**: scikit-learn (logistic, random forest, calibration)
-- **Data**: pandas, numpy, scipy
+- **ML**: scikit-learn (logistic, random forest, calibration), XGBoost, LightGBM
+- **Data**: pandas, numpy, scipy, yfinance
 - **API**: FastAPI, uvicorn
 - **Testing**: pytest
 - **Deployment**: Docker, Kubernetes, GitHub Actions

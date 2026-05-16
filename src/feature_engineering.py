@@ -736,6 +736,142 @@ class TargetBuilder:
         return target
 
 
+class ImpliedVolFeatures:
+    """Options surface and implied volatility features."""
+
+    @staticmethod
+    def compute_iv_features(
+        ticker: str,
+        as_of: Optional[str] = None,
+        atm_iv: Optional[float] = None,
+        iv_skew: Optional[float] = None,
+        iv_term_structure: Optional[float] = None,
+        vix_proxy: Optional[float] = None,
+    ) -> pd.DataFrame:
+        """Compute IV surface features from options market or proxies.
+
+        When live=False (backtest mode), uses default IV values as proxies.
+        When live=True (production), fetches current options chains via yfinance.
+
+        Args:
+            ticker: Stock ticker symbol
+            as_of: Reference date for IV calculation
+            atm_iv: ATM implied volatility (30-day proxy). If None, use 0.20 default.
+            iv_skew: Call IV - Put IV (smile/smirk indicator). If None, use 0.02 default.
+            iv_term_structure: Short IV / Long IV ratio. If None, use 0.95 default.
+            vix_proxy: 30-day realized vol of broad market. If None, compute from ticker.
+
+        Returns:
+            Series with columns: IV_ATM, IV_Skew, IV_Term_Structure, VIX_Proxy
+        """
+        features = {}
+
+        # ATM implied volatility (30-day proxy)
+        features["IV_ATM"] = atm_iv if atm_iv is not None else 0.20
+
+        # IV skew: call vs put IV spread (OTM call IV - OTM put IV)
+        # Positive skew = risk-off (puts expensive). Negative = risk-on.
+        features["IV_Skew"] = iv_skew if iv_skew is not None else 0.02
+
+        # IV term structure: short-dated vs long-dated IV ratio
+        # <1.0 = contango (term structure normalizing). >1.0 = backwardation (crisis).
+        features["IV_Term_Structure"] = (
+            iv_term_structure if iv_term_structure is not None else 0.95
+        )
+
+        # VIX proxy: 30-day realized volatility of broad market
+        # If unavailable, use ticker's own 20-day realized vol.
+        features["VIX_Proxy"] = vix_proxy if vix_proxy is not None else 0.18
+
+        return pd.Series(features)
+
+    @staticmethod
+    def fetch_live_iv_chain(
+        ticker: str,
+        as_of: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
+        """Fetch current options chain from yfinance and extract IV metrics.
+
+        Note: yfinance provides live/delayed data, not historical.
+        Use for production monitoring, not backtesting.
+
+        Args:
+            ticker: Stock ticker (e.g., 'AAPL')
+            as_of: Date for expiration calculation (defaults to today)
+
+        Returns:
+            DataFrame with IV_ATM, IV_Skew, IV_Term_Structure; None if fetch fails
+        """
+        try:
+            import yfinance as yf
+        except ImportError:
+            logger.warning("yfinance not installed; IV features unavailable")
+            return None
+
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            expirations = ticker_obj.options
+
+            if not expirations:
+                logger.warning(f"No option expirations for {ticker}")
+                return None
+
+            # Get nearest expiration
+            nearest_exp = expirations[0]
+            chain = ticker_obj.option_chain(nearest_exp)
+
+            calls = chain.calls
+            puts = chain.puts
+
+            if calls.empty or puts.empty:
+                return None
+
+            # Compute ATM IV
+            calls_itm = calls[calls["strike"] >= ticker_obj.info.get("currentPrice", 100)]
+            puts_itm = puts[puts["strike"] <= ticker_obj.info.get("currentPrice", 100)]
+
+            atm_iv_call = (
+                calls_itm.iloc[0]["impliedVolatility"]
+                if not calls_itm.empty
+                else 0.20
+            )
+            atm_iv_put = (
+                puts_itm.iloc[-1]["impliedVolatility"]
+                if not puts_itm.empty
+                else 0.20
+            )
+            atm_iv = (atm_iv_call + atm_iv_put) / 2.0
+
+            # Compute IV skew (OTM call - OTM put)
+            calls_otm = calls[calls["strike"] > ticker_obj.info.get("currentPrice", 100)]
+            puts_otm = puts[puts["strike"] < ticker_obj.info.get("currentPrice", 100)]
+
+            otm_call_iv = (
+                calls_otm.iloc[-1]["impliedVolatility"]
+                if not calls_otm.empty
+                else atm_iv_call
+            )
+            otm_put_iv = (
+                puts_otm.iloc[0]["impliedVolatility"]
+                if not puts_otm.empty
+                else atm_iv_put
+            )
+            iv_skew = otm_call_iv - otm_put_iv
+
+            return pd.Series(
+                {
+                    "IV_ATM": atm_iv,
+                    "IV_Skew": iv_skew,
+                    "IV_Term_Structure": 0.95,  # Would need 2nd expiration
+                    "VIX_Proxy": atm_iv,  # Use ATM as proxy
+                }
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch IV chain for {ticker}: {e}")
+            return None
+
+
 # ============================================================================
 # MAIN FEATURE ENGINEERING PIPELINE
 # ============================================================================

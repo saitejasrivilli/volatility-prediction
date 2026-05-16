@@ -164,7 +164,86 @@ class DemoHistoricalOptionsClient(HistoricalOptionsClient):
         return [first_friday + pd.Timedelta(days=7 * offset) for offset in range(3)]
 
 
-OptionsProviderName = Literal["alpha_vantage", "polygon", "orats", "demo"]
+@dataclass
+class YFinanceHistoricalOptionsClient(HistoricalOptionsClient):
+    """Fetch US options chains from yfinance (live/delayed, not historical).
+
+    yfinance provides current option chains with Greeks and IV from market data.
+    For backtesting use-cases, treats latest chain as proxy for validation workflows.
+    """
+
+    def fetch_chain(self, symbol: str, as_of: date | str) -> pd.DataFrame:
+        """Return normalized options chain from yfinance.
+
+        Args:
+            symbol: Ticker symbol (e.g., 'AAPL')
+            as_of: Date to query (nearest available expiration used)
+
+        Returns:
+            Normalized DataFrame with columns: expiration_date, strike, option_type,
+            bid, ask, implied_volatility, delta, gamma, vega, theta
+        """
+        try:
+            import yfinance as yf
+        except ImportError:
+            raise OptionsDataError(
+                "yfinance not installed. Install via: pip install yfinance"
+            )
+
+        ticker = yf.Ticker(symbol)
+        try:
+            expirations = ticker.options
+        except Exception as e:
+            raise OptionsDataError(f"Failed to fetch expirations for {symbol}: {e}")
+
+        if not expirations:
+            raise OptionsDataError(f"No option expirations available for {symbol}")
+
+        # Find nearest available expiration
+        as_of_date = pd.Timestamp(as_of).normalize()
+        nearest_exp = self._find_nearest_expiration(expirations, as_of_date)
+
+        try:
+            option_chain = ticker.option_chain(nearest_exp)
+        except Exception as e:
+            raise OptionsDataError(
+                f"Failed to fetch option chain for {symbol} exp {nearest_exp}: {e}"
+            )
+
+        calls = option_chain.calls.copy()
+        puts = option_chain.puts.copy()
+
+        if calls.empty or puts.empty:
+            raise OptionsDataError(
+                f"Empty option chain for {symbol} expiration {nearest_exp}"
+            )
+
+        calls["option_type"] = "call"
+        puts["option_type"] = "put"
+        calls["expiration_date"] = nearest_exp
+        puts["expiration_date"] = nearest_exp
+        calls["data_source"] = "yfinance_live"
+        puts["data_source"] = "yfinance_live"
+
+        combined = pd.concat([calls, puts], ignore_index=True)
+
+        rename_map = {
+            "impliedVolatility": "implied_volatility",
+        }
+
+        return OptionsChainNormalizer.normalize(combined, rename_map=rename_map)
+
+    @staticmethod
+    def _find_nearest_expiration(expirations: list[str], as_of: pd.Timestamp) -> str:
+        """Find nearest available expiration to as_of date."""
+        exp_dates = pd.to_datetime(expirations)
+        future_exps = exp_dates[exp_dates >= as_of]
+        if len(future_exps) > 0:
+            return future_exps.min().strftime("%Y-%m-%d")
+        return exp_dates.max().strftime("%Y-%m-%d")
+
+
+OptionsProviderName = Literal["alpha_vantage", "polygon", "orats", "demo", "yfinance"]
 
 
 def build_historical_options_client(
@@ -177,6 +256,7 @@ def build_historical_options_client(
         "polygon": PolygonHistoricalOptionsClient,
         "orats": OratsHistoricalOptionsClient,
         "demo": DemoHistoricalOptionsClient,
+        "yfinance": YFinanceHistoricalOptionsClient,
     }
     try:
         return clients[provider_name]()

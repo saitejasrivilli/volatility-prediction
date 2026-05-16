@@ -25,6 +25,16 @@ from sklearn.metrics import (
 )
 
 try:
+    import xgboost as xgb
+except ImportError:
+    xgb = None
+
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
+
+try:
     from .config import MODEL_CONFIG, TRADING_CONFIG, WALK_FORWARD_CONFIG
     from .feature_engineering import FeaturePreprocessor, TargetBuilder
 except ImportError:  # pragma: no cover
@@ -531,6 +541,34 @@ class WalkForwardValidator:
                 random_state=MODEL_CONFIG.RANDOM_STATE,
                 class_weight="balanced",
             )
+        if self.model_kind == "xgboost":
+            if xgb is None:
+                raise ImportError("xgboost not installed. Install via: pip install xgboost")
+            return xgb.XGBClassifier(
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                scale_pos_weight=20,
+                eval_metric="aucpr",
+                random_state=MODEL_CONFIG.RANDOM_STATE,
+                verbosity=0,
+            )
+        if self.model_kind == "lightgbm":
+            if lgb is None:
+                raise ImportError("lightgbm not installed. Install via: pip install lightgbm")
+            return lgb.LGBMClassifier(
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                is_unbalance=True,
+                metric="average_precision",
+                random_state=MODEL_CONFIG.RANDOM_STATE,
+                verbose=-1,
+            )
         raise ValueError(f"Unknown model kind: {self.model_kind}")
 
     def _estimate_kelly_from_training(
@@ -649,5 +687,33 @@ def make_model(model_kind: str):
             min_samples_leaf=10,
             random_state=MODEL_CONFIG.RANDOM_STATE,
             class_weight="balanced",
+        )
+    if model_kind == "xgboost":
+        if xgb is None:
+            raise ImportError("xgboost not installed. Install via: pip install xgboost")
+        return xgb.XGBClassifier(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            scale_pos_weight=20,
+            eval_metric="aucpr",
+            random_state=MODEL_CONFIG.RANDOM_STATE,
+            verbosity=0,
+        )
+    if model_kind == "lightgbm":
+        if lgb is None:
+            raise ImportError("lightgbm not installed. Install via: pip install lightgbm")
+        return lgb.LGBMClassifier(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            is_unbalance=True,
+            metric="average_precision",
+            random_state=MODEL_CONFIG.RANDOM_STATE,
+            verbose=-1,
         )
     raise ValueError(f"Unknown model kind: {model_kind}")
